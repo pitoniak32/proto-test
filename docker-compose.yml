@@ -1,0 +1,49 @@
+services:
+  jaeger-all-in-one:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4317"
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=env:OTEL_COLLECTOR_CONFIG", "${OTELCOL_ARGS}"]
+    ports:
+      - "13133:13133" # health_check extension
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+    environment:
+      GRAFANA_USERNAME: ${GRAFANA_USERNAME}
+      GRAFANA_API_KEY: ${GRAFANA_API_KEY}
+      OTEL_COLLECTOR_CONFIG: |
+        receivers:
+          otlp:
+            protocols:
+              http: 
+                endpoint: 0.0.0.0:4318
+              grpc:
+                endpoint: 0.0.0.0:4317
+        processors:
+          batch:
+        exporters:
+          debug:
+          otlp/tempo:
+            endpoint: "tempo-prod-04-prod-us-east-0.grafana.net:443"
+            auth:
+              authenticator: basicauth/client
+          otlp/jaeger:
+            endpoint: jaeger-all-in-one:4317
+            tls:
+              insecure: true
+        extensions:
+          health_check:
+          basicauth/client:
+            client_auth:
+              username: $${env:GRAFANA_USERNAME}
+              password: $${env:GRAFANA_API_KEY}
+        service:
+          extensions: [basicauth/client, health_check]
+          pipelines:
+            traces:
+              receivers: [otlp]
+              processors: [batch]
+              exporters: [debug, otlp/jaeger, otlp/tempo]
